@@ -1,0 +1,69 @@
+CREATE OR REPLACE FUNCTION public.a_samael_get_distance_and_duration (
+  adrarr json,
+  out a_distance double precision,
+  out a_duration integer
+)
+RETURNS SETOF record AS
+$body$
+DECLARE 
+ c_a json;
+ c_b record;
+ lat1 double PRECISION;
+ lon1 double PRECISION;
+ lat2 double PRECISION;
+ lon2 double PRECISION;
+ lat_buf double PRECISION;
+ lon_buf double PRECISION;
+ b_distance double PRECISION=0;
+ b_duration double PRECISION=0;
+BEGIN
+   for c_a in (SELECT json_array_elements(adrarr)) loop
+      if(lat_buf is null) then
+        lat_buf=(SELECT c_a::json->'latitude');
+        lon_buf=(SELECT c_a::json->'longitude');
+      else
+       lat2=(SELECT c_a::json->'latitude');
+        lon2=(SELECT c_a::json->'longitude');
+      end if; 
+      if(lat2 is not null) then
+       c_b = a_samael_get_distance_osrm(lat_buf,lon_buf,lat2,lon2);
+        lat_buf=(SELECT c_a::json->'latitude');
+        lon_buf=(SELECT c_a::json->'longitude');
+        b_distance=b_distance+c_b.distance;
+        b_duration=b_duration+c_b.duration;
+      end if;
+ end loop;
+a_distance=b_distance;
+a_duration=(b_duration/60)::integer;
+  RETURN;
+END;
+$body$
+LANGUAGE 'plpgsql'
+IMMUTABLE
+CALLED ON NULL INPUT
+SECURITY INVOKER
+COST 100 ROWS 1000;
+
+
+CREATE OR REPLACE FUNCTION public.a_samael_get_distance_osrm (
+  in_lat double precision,
+  in_lon double precision,
+  in_lat2 double precision,
+  in_lon2 double precision,
+  out distance double precision,
+  out duration double precision
+)
+RETURNS SETOF record AS
+$body$
+DECLARE
+res text;
+BEGIN
+SELECT content::json-> 'routes'-> 0 ->> 'distance',content::json-> 'routes'-> 0 ->> 'duration' into distance,duration from http_get('http://itsrv-osrm.homeip.net:5000/route/v1/driving/'||in_lon||','||in_lat||';'||in_lon2||','||in_lat2||'.json?overview=full&alternatives=false&steps=false&geometries=polyline');
+RETURN NEXT;
+END;
+$body$
+LANGUAGE 'plpgsql'
+VOLATILE
+CALLED ON NULL INPUT
+SECURITY INVOKER
+COST 100 ROWS 1000;
